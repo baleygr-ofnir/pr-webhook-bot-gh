@@ -7,7 +7,7 @@ services:
     container_name: pr-webhook-gh
     restart: unless-stopped
     ports:
-      - "3003:3003"
+      - "3003:3000"
     env_file:
       - .env
     security_opt:
