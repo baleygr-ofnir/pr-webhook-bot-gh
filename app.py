@@ -1,5 +1,6 @@
-import base64
 import os
+import hmac
+import hashlib
 import requests
 from flask import Flask, request
 from dotenv import load_dotenv
@@ -15,86 +16,73 @@ def get_required_env(key: str) -> str:
     return value
 
 DISCORD_WEBHOOK_URL = get_required_env("DISCORD_WEBHOOK_URL")
-AZURE_ORG = get_required_env("AZURE_ORG")
-AZURE_PROJECT = get_required_env("AZURE_PROJECT")
-raw_pat = get_required_env("AZURE_PAT")
-AZURE_PAT = base64.b64encode(f":{raw_pat}".encode()).decode()
-HEADERS = {"Authorization": f"Basic {AZURE_PAT}"}
+GITHUB_WEBHOOK_SECRET = get_required_env("GITHUB_WEBHOOK_SECRET")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    # Verify GitHub signature for security
+    signature_header = request.headers.get("X-Hub-Signature-256")
+    if not signature_header:
+        return "Missing signature", 401
+        
+    payload = request.get_data()
+    expected_signature = "sha256=" + hmac.new(
+        GITHUB_WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected_signature, signature_header):
+        return "Invalid signature", 401
+
+    event_type = request.headers.get("X-GitHub-Event")
+    if event_type != "pull_request":
+        return "", 200
+        
     event = request.get_json()
-    event_type = event.get("eventType", "")
+    if not event:
+        return "", 400
+        
+    action = event.get("action")
     
-    valid_events = [
-        "git.pullrequest.created",
-        "git.pullrequest.updated",
-        "git.pullrequest.merged"
-    ]
-    if event_type not in valid_events:
+    valid_actions = ["opened", "synchronize", "closed"]
+    if action not in valid_actions:
         return "", 200
     
-    pr = event.get("resource", {})
-    pr_id = pr.get("pullRequestId")
-    repo_id = pr.get("repository", {}).get("id")
-    
-    if not pr_id or not repo_id:
+    pr = event.get("pull_request", {})
+    if not pr:
         return "", 400
+        
+    is_merged = pr.get("merged", False)
+    if action == "closed" and not is_merged:
+        return "", 200
+        
+    mergeable = pr.get("mergeable")
+    has_conflicts = mergeable is False
     
-    base_url = (
-        f"https://dev.azure.com/{AZURE_ORG}/{AZURE_PROJECT}"
-        f"/_apis/git/repositories/{repo_id}"
-    )
+    change_count = pr.get("changed_files", 0)
+    
+    mapped_event = action
+    if action == "closed" and is_merged:
+        mapped_event = "merged"
 
-    # 1. Fetch all iterations
-    iterations_response = requests.get(
-        f"{base_url}/pullRequests/{pr_id}/iterations?api-version=7.1",
-        headers=HEADERS
-    )
-    iterations_list = iterations_response.json().get("value", []) if iterations_response.ok else {}
-
-    change_count = 0
-    if iterations_list:
-        last_iteration_id = iterations_list[-1].get("id")
-
-        # 2. Fetch actual file changes for that latest iteration
-        changes_response = requests.get(
-            f"{base_url}/pullRequests/{pr_id}/iterations/{last_iteration_id}/changes?api-version=7.1",
-            headers=HEADERS
-        )
-        if changes_response.ok:
-            changes_data = changes_response.json()
-            change_count = len(changes_data.get("changeEntries", []))
-
-    pr_detail_response = requests.get(
-        f"{base_url}/pullRequests/{pr_id}?api-version=7.1",
-        headers=HEADERS
-    )
-    pr_detail = pr_detail_response.json() if pr_detail_response.ok else {}
-
-    # Check for conflicts
-    has_conflicts = pr_detail.get("mergeStatus") == "conflicts"
-
-    update_reason = event.get("message", {}).get("text", "Pull request event triggered.")
-
-    send_discord_message(pr, change_count, has_conflicts, event_type, update_reason)
+    send_discord_message(pr, change_count, has_conflicts, mapped_event)
     
     return "", 200
 
-def send_discord_message(pr, change_count, has_conflicts, event_type, update_reason):
-    # Determine if new or updated
-    is_completion = event_type == "git.pullrequest.merged"
-    is_updated = event_type == "git.pullrequest.updated"
-
-    if is_completion:
+def send_discord_message(pr, change_count, has_conflicts, event_type):
+    if event_type == "merged":
         title_prefix = "Pull Request Completed"
         color = 0x9b59b6
-    elif is_updated:
+        update_reason = "Pull request merged."
+    elif event_type == "synchronize":
         title_prefix = "Pull Request Updated"
         color = 0x3498db
+        update_reason = "New commits were pushed."
     else:
         title_prefix = "New Pull Request"
         color = 0x2ecc71
+        update_reason = "Pull request opened."
 
     fields = [
         {
@@ -104,17 +92,17 @@ def send_discord_message(pr, change_count, has_conflicts, event_type, update_rea
         },
         {
             "name": "Author",
-            "value": pr.get("createdBy", {}).get("displayName", "Unknown"),
+            "value": pr.get("user", {}).get("login", "Unknown"),
             "inline": True
         },
         {
             "name": "From branch",
-            "value": pr.get("sourceRefName", "").replace("refs/heads/", ""),
+            "value": pr.get("head", {}).get("ref", ""),
             "inline": True
         },
         {
             "name": "Into branch",
-            "value": pr.get("targetRefName", "").replace("refs/heads/", ""),
+            "value": pr.get("base", {}).get("ref", ""),
             "inline": True
         },
         {
@@ -129,12 +117,15 @@ def send_discord_message(pr, change_count, has_conflicts, event_type, update_rea
         },
     ] 
 
-    # Create and sends the discord messages
+    pr_title = pr.get("title", "Unknown Title")
+    pr_url = pr.get("html_url", "")
+    
     embed = {
-        "title": f"{title_prefix}: {pr.get('title', 'Unknown Title')}",
+        "title": f"{title_prefix}: {pr_title}",
+        "url": pr_url,
         "color": color,
         "fields": fields,
-        "timestamp": pr.get("creationDate"),
+        "timestamp": pr.get("created_at"),
     }
 
     requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
