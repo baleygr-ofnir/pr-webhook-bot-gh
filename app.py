@@ -23,6 +23,7 @@ def webhook():
     # Verify GitHub signature for security
     signature_header = request.headers.get("X-Hub-Signature-256")
     if not signature_header:
+        print("Missing signature header")
         return "Missing signature", 401
         
     payload = request.get_data()
@@ -33,17 +34,21 @@ def webhook():
     ).hexdigest()
 
     if not hmac.compare_digest(expected_signature, signature_header):
+        print(f"Signature mismatch! Expected: {expected_signature}, Got: {signature_header}")
         return "Invalid signature", 401
 
     event_type = request.headers.get("X-GitHub-Event")
+    print(f"Received GitHub event: {event_type}")
     if event_type != "pull_request":
         return "", 200
         
-    event = request.get_json()
+    event = request.get_json(force=True, silent=True)
     if not event:
+        print("Failed to parse JSON payload")
         return "", 400
         
     action = event.get("action")
+    print(f"Pull Request Action: {action}")
     
     valid_actions = ["opened", "synchronize", "closed"]
     if action not in valid_actions:
@@ -51,10 +56,12 @@ def webhook():
     
     pr = event.get("pull_request", {})
     if not pr:
+        print("Missing 'pull_request' object in payload")
         return "", 400
         
     is_merged = pr.get("merged", False)
     if action == "closed" and not is_merged:
+        print("PR closed but not merged. Ignoring.")
         return "", 200
         
     mergeable = pr.get("mergeable")
@@ -128,7 +135,12 @@ def send_discord_message(pr, change_count, has_conflicts, event_type):
         "timestamp": pr.get("created_at"),
     }
 
-    requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+    print("Sending message to Discord...")
+    resp = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+    if not resp.ok:
+        print(f"Failed to send Discord message: {resp.status_code} {resp.text}")
+    else:
+        print("Successfully sent message to Discord!")
     
 if __name__ == "__main__":
     app.run(port=3000, debug=True)
