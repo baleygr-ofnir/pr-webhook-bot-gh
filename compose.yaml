@@ -1,9 +1,7 @@
 ---
 services:
   pr-webhook-relay:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/baleygr-ofnir/pr-webhook-bot-gh:latest
     container_name: pr-webhook-gh
     restart: unless-stopped
     ports:
