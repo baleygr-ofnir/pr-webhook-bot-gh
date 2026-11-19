@@ -217,9 +217,14 @@ def send_review_message(pr, review, state, reviewer):
 
     fields = [
         {
-            "name": "Event Details",
-            "value": f"{review_label} by {reviewer}.",
-            "inline": False
+            "name": "Review",
+            "value": review_label,
+            "inline": True
+        },
+        {
+            "name": "Reviewer",
+            "value": reviewer,
+            "inline": True
         },
         {
             "name": "Author",
