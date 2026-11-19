@@ -243,8 +243,7 @@ def send_review_message(pr, review, state, reviewer):
         },
     ]
 
-    # Embed limits (https://docs.discord.com/developers/resources/message#embed-object-embed-limits):
-    # title 256, description 4096, and 6000 characters across all text in the message's embeds.
+    # Embed title limit is 256 characters (https://docs.discord.com/developers/resources/message#embed-object-embed-limits).
     title = f"{title_prefix}: {pr.get('title', 'Unknown Title')}"
     embed = {
         "title": title if len(title) <= 256 else title[:255] + "…",
@@ -253,10 +252,6 @@ def send_review_message(pr, review, state, reviewer):
         "fields": fields,
         "timestamp": review.get("submitted_at"),
     }
-    body = review.get("body")
-    if body:
-        # Kept well under the 6000 total so title and fields still fit.
-        embed["description"] = body if len(body) <= 4000 else body[:4000] + "…"
 
     print("Sending review message to Discord...")
     resp = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
