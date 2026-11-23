@@ -131,7 +131,7 @@ def send_discord_message(pr, change_count, has_conflicts, event_type):
         update_reason = "New commits were pushed."
     else:
         title_prefix = "New Pull Request"
-        color = 0x2ecc71
+        color = 0xf1c40f
         update_reason = "Pull request opened."
 
     fields = [
