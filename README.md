@@ -31,6 +31,8 @@ It also posts submitted reviews, coloured by type: green for **Approve**, red fo
 
 Comments on a PR post the same grey **Comment** card: comments in the Conversation tab (also `gh pr comment`) and single comments on diff lines. Conversation comments carry no branch data, so their From and Into branch fields show `—`. Line comments that belong to a submitted review add no card of their own; the review's card covers them. Comments are filtered separately from reviews: the same person commenting on the same PR within 5 minutes is posted once. Comments on plain issues are ignored.
 
+All cards share one field layout. The first row is always Author, From branch and Into branch. The second row holds the card's own fields: Files changed and Merge conflicts on PR cards, and Review and Reviewer on review and comment cards. PR cards show what happened ("Pull request opened.", "New commits were pushed.", "Pull request merged.") as text under the title.
+
 ## Deployment
 
 Every push to `main` runs the `Publish image` workflow (`.github/workflows/publish-image.yaml`). It builds a `linux/amd64` image and pushes it to `ghcr.io/baleygr-ofnir/pr-webhook-bot-gh` with two tags:

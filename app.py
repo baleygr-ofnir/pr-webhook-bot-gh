@@ -138,12 +138,8 @@ def send_discord_message(pr, change_count, has_conflicts, event_type):
         color = 0xf1c40f
         update_reason = "Pull request opened."
 
+    # Every card puts Author, From branch and Into branch in row 1, so they line up across cards.
     fields = [
-        {
-            "name": "Event Details",
-            "value": update_reason,
-            "inline": False
-        },
         {
             "name": "Author",
             "value": pr.get("user", {}).get("login", "Unknown"),
@@ -177,6 +173,7 @@ def send_discord_message(pr, change_count, has_conflicts, event_type):
     embed = {
         "title": f"{title_prefix}: {pr_title}",
         "url": pr_url,
+        "description": update_reason,
         "color": color,
         "fields": fields,
         "timestamp": pr.get("created_at"),
@@ -290,17 +287,8 @@ def post_comment(event, pr, comment):
 def send_review_message(pr, review, state, reviewer):
     title_prefix, color, review_label = REVIEW_STYLES[state]
 
+    # Same row 1 as the PR cards; the review-specific fields go in row 2.
     fields = [
-        {
-            "name": "Review",
-            "value": review_label,
-            "inline": True
-        },
-        {
-            "name": "Reviewer",
-            "value": reviewer,
-            "inline": True
-        },
         {
             "name": "Author",
             "value": pr.get("user", {}).get("login", "Unknown"),
@@ -314,6 +302,16 @@ def send_review_message(pr, review, state, reviewer):
         {
             "name": "Into branch",
             "value": pr.get("base", {}).get("ref", ""),
+            "inline": True
+        },
+        {
+            "name": "Review",
+            "value": review_label,
+            "inline": True
+        },
+        {
+            "name": "Reviewer",
+            "value": reviewer,
             "inline": True
         },
     ]
