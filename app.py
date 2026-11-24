@@ -79,7 +79,7 @@ def webhook():
 
     event_type = request.headers.get("X-GitHub-Event")
     print(f"Received GitHub event: {event_type}")
-    if event_type not in ("pull_request", "pull_request_review"):
+    if event_type not in ("pull_request", "pull_request_review", "issue_comment", "pull_request_review_comment"):
         return "", 200
 
     event = request.get_json(force=True, silent=True)
@@ -89,6 +89,10 @@ def webhook():
 
     if event_type == "pull_request_review":
         return handle_review(event)
+    if event_type == "issue_comment":
+        return handle_conversation_comment(event)
+    if event_type == "pull_request_review_comment":
+        return handle_line_comment(event)
 
     action = event.get("action")
     print(f"Pull Request Action: {action}")
@@ -204,12 +208,83 @@ def handle_review(event):
 
     reviewer = review.get("user", {}).get("login", "Unknown")
     repo = event.get("repository", {}).get("full_name", "")
+
+    # A review and its line comments share the review ID. Claiming it lets only the first of them post,
+    # so a review's line comments don't add cards. Approve and Request changes still post if a
+    # line comment of theirs was handled first, so those review types are never lost.
+    review_id = review.get("id")
+    review_claimed = review_id is None or claim_review_notification(f"{repo}:review-id:{review_id}")
+    if state == "commented" and not review_claimed:
+        print(f"Review {review.get('id')} already posted via one of its line comments. Ignoring.")
+        return "", 200
+
     key = f"{repo}#{pr.get('number')}:{state}:{reviewer}"
     if not claim_review_notification(key):
         print(f"Review notification '{key}' already sent within the window. Ignoring.")
         return "", 200
 
     send_review_message(pr, review, state, reviewer)
+    return "", 200
+
+def handle_conversation_comment(event):
+    action = event.get("action")
+    print(f"Issue Comment Action: {action}")
+    if action != "created":
+        return "", 200
+
+    issue = event.get("issue", {})
+    comment = event.get("comment", {})
+    if not issue or not comment:
+        print("Missing 'issue' or 'comment' object in payload")
+        return "", 400
+
+    # Every pull request is an issue; only PRs carry the 'pull_request' key.
+    if "pull_request" not in issue:
+        print("Comment is on an issue, not a pull request. Ignoring.")
+        return "", 200
+
+    # The issue payload has no branch data, so those fields keep their place with a dash.
+    pr = {
+        "number": issue.get("number"),
+        "title": issue.get("title"),
+        "html_url": issue.get("html_url"),
+        "user": issue.get("user", {}),
+        "head": {"ref": "—"},
+        "base": {"ref": "—"},
+    }
+    return post_comment(event, pr, comment)
+
+def handle_line_comment(event):
+    action = event.get("action")
+    print(f"Pull Request Review Comment Action: {action}")
+    if action != "created":
+        return "", 200
+
+    pr = event.get("pull_request", {})
+    comment = event.get("comment", {})
+    if not pr or not comment:
+        print("Missing 'pull_request' or 'comment' object in payload")
+        return "", 400
+
+    repo = event.get("repository", {}).get("full_name", "")
+    review_id = comment.get("pull_request_review_id")
+    if review_id is not None and not claim_review_notification(f"{repo}:review-id:{review_id}"):
+        print(f"Line comment belongs to review {review_id}, which already posted. Ignoring.")
+        return "", 200
+
+    return post_comment(event, pr, comment)
+
+def post_comment(event, pr, comment):
+    commenter = comment.get("user", {}).get("login", "Unknown")
+    repo = event.get("repository", {}).get("full_name", "")
+    # Filtered separately from 'Commented' reviews.
+    key = f"{repo}#{pr.get('number')}:comment:{commenter}"
+    if not claim_review_notification(key):
+        print(f"Comment notification '{key}' already sent within the window. Ignoring.")
+        return "", 200
+
+    review_like = {"html_url": comment.get("html_url"), "submitted_at": comment.get("created_at")}
+    send_review_message(pr, review_like, "commented", commenter)
     return "", 200
 
 def send_review_message(pr, review, state, reviewer):

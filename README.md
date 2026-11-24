@@ -21,13 +21,15 @@ A simple Flask bot that receives GitHub pull request webhooks and forwards forma
    - **Payload URL**: The URL where your bot is hosted (e.g. `https://your-domain.com/webhook`)
    - **Content type**: `application/json`
    - **Secret**: The same secret string you put in `GITHUB_WEBHOOK_SECRET`
-   - **Events**: Let me select individual events -> Check **Pull requests** and **Pull request reviews**
+   - **Events**: Let me select individual events -> Check **Pull requests**, **Pull request reviews**, **Issue comments** and **Pull request review comments**
    - **Active**: Check
    - Save the webhook.
 
 The bot will now verify the signature of the incoming requests and notify your Discord channel whenever a Pull Request is opened, updated (synchronized), or merged!
 
 It also posts submitted reviews, coloured by type: green for **Approve**, red for **Request changes** and grey for **Comment**. To avoid spam, the same reviewer giving the same type of review on the same PR within 5 minutes is posted only once; repeats in that window are dropped. This state is kept in a SQLite file inside the container (shared by all gunicorn workers) and resets when the container is recreated.
+
+Comments on a PR post the same grey **Comment** card: comments in the Conversation tab (also `gh pr comment`) and single comments on diff lines. Conversation comments carry no branch data, so their From and Into branch fields show `—`. Line comments that belong to a submitted review add no card of their own; the review's card covers them. Comments are filtered separately from reviews: the same person commenting on the same PR within 5 minutes is posted once. Comments on plain issues are ignored.
 
 ## Deployment
 
